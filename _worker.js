@@ -207,6 +207,18 @@ export default {
 			if (订阅格式 == 'base64' || token == fakeToken) {
 				return new Response(base64Data, { headers: responseHeaders });
 			} else if (订阅格式 == 'clash') {
+				// 优先返回自定义 Clash 配置
+				if (env.KV) {
+					try {
+						const customClashConfig = await env.KV.get('clash-config.yaml');
+						if (customClashConfig && customClashConfig.trim()) {
+							if (!userAgent.includes('mozilla')) responseHeaders["Content-Disposition"] = `attachment; filename*=utf-8''${encodeURIComponent(FileName)}`;
+							return new Response(customClashConfig, { headers: responseHeaders });
+						}
+					} catch (e) {
+						console.log('读取自定义Clash配置失败:', e);
+					}
+				}
 				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=clash&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
 			} else if (订阅格式 == 'singbox') {
 				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=singbox&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
@@ -518,14 +530,38 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 		// POST请求处理
 		if (request.method === "POST") {
 			if (!env.KV) return new Response("未绑定KV空间", { status: 400 });
+			
+			// 鉴权：校验 URL 中的 token 是否为主 TOKEN 或访客 TOKEN
+			const postToken = url.searchParams.get('token') || '';
+			const postPathToken = url.pathname.split('/').pop() || '';
+			const validTokens = [mytoken, guest];
+			if (!validTokens.includes(postToken) && !validTokens.includes(postPathToken)) {
+				return new Response("未授权", { status: 403 });
+			}
+			
+			// 访客只允许 GET，禁止 POST
+			if (validTokens.includes(postToken) && postToken !== mytoken || validTokens.includes(postPathToken) && postPathToken !== mytoken) {
+				return new Response("访客无写入权限", { status: 403 });
+			}
+			
 			try {
 				const contentType = request.headers.get('Content-Type') || '';
-				const content = await request.text();
+				const body = await request.text();
 				
 				// 判断是保存配置还是保存节点数据
 				if (contentType.includes('application/json')) {
+					const data = JSON.parse(body);
+					
+					// 保存 Clash 配置
+					if (data.type === 'clash-config') {
+						await env.KV.put('clash-config.yaml', data.content);
+						return new Response(JSON.stringify({ success: true, message: "Clash配置保存成功" }), {
+							headers: { 'Content-Type': 'application/json' }
+						});
+					}
+					
 					// 保存配置到 CONFIG.json
-					const config = JSON.parse(content);
+					const config = data;
 					const existingConfig = await env.KV.get('CONFIG.json');
 					const mergedConfig = existingConfig ? { ...JSON.parse(existingConfig), ...config } : config;
 					await env.KV.put('CONFIG.json', JSON.stringify(mergedConfig, null, 2));
@@ -534,7 +570,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 					});
 				} else {
 					// 保存节点数据
-					await env.KV.put(txt, content);
+					await env.KV.put(txt, body);
 					return new Response("保存成功");
 				}
 			} catch (error) {
@@ -545,6 +581,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 
 		// GET请求部分
 		let content = '';
+		let clashConfigContent = '';
 		let hasKV = !!env.KV;
 
 		if (hasKV) {
@@ -553,6 +590,11 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 			} catch (error) {
 				console.error('读取KV时发生错误:', error);
 				content = '读取数据时发生错误: ' + error.message;
+			}
+			try {
+				clashConfigContent = await env.KV.get('clash-config.yaml') || '';
+			} catch (error) {
+				console.error('读取Clash配置时发生错误:', error);
 			}
 		}
 
@@ -567,6 +609,42 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 					<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 					<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 					<style>
+						:root {
+							--bg-gradient-start: #667eea;
+							--bg-gradient-end: #764ba2;
+							--text-primary: #1a1a2e;
+							--text-secondary: #666;
+							--text-hint: #888;
+							--card-bg: rgba(255, 255, 255, 0.95);
+							--card-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+							--card-hover-shadow: 0 15px 40px rgba(0, 0, 0, 0.12);
+							--sub-item-bg: #f8f9fa;
+							--sub-item-hover-bg: #fff;
+							--input-bg: #fafafa;
+							--input-border: #e0e0e0;
+							--border-color: #e0e0e0;
+							--editor-bg: #fafafa;
+							--footer-color: rgba(255, 255, 255, 0.8);
+						}
+						
+						[data-theme="dark"] {
+							--bg-gradient-start: #1a1a2e;
+							--bg-gradient-end: #16213e;
+							--text-primary: #e4e6eb;
+							--text-secondary: #b0b3b8;
+							--text-hint: #8a8d91;
+							--card-bg: rgba(30, 30, 50, 0.95);
+							--card-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+							--card-hover-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+							--sub-item-bg: rgba(50, 50, 70, 0.8);
+							--sub-item-hover-bg: rgba(60, 60, 90, 0.9);
+							--input-bg: rgba(40, 40, 60, 0.8);
+							--input-border: rgba(100, 100, 140, 0.5);
+							--border-color: rgba(100, 100, 140, 0.5);
+							--editor-bg: rgba(30, 30, 50, 0.9);
+							--footer-color: rgba(255, 255, 255, 0.7);
+						}
+						
 						* {
 							margin: 0;
 							padding: 0;
@@ -575,11 +653,12 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						
 						body {
 							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-							background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+							background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
 							min-height: 100vh;
 							padding: 20px;
 							line-height: 1.6;
-							color: #1a1a2e;
+							color: var(--text-primary);
+							transition: background 0.3s ease, color 0.3s ease;
 						}
 						
 						.container {
@@ -591,10 +670,11 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							text-align: center;
 							margin-bottom: 30px;
 							padding: 30px;
-							background: rgba(255, 255, 255, 0.95);
+							background: var(--card-bg);
 							border-radius: 20px;
 							backdrop-filter: blur(10px);
 							box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+							transition: background 0.3s ease, box-shadow 0.3s ease;
 						}
 						
 						.header h1 {
@@ -608,33 +688,39 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						}
 						
 						.header p {
-							color: #666;
+							color: var(--text-secondary);
 							font-size: 14px;
 						}
 						
 						.card {
-							background: rgba(255, 255, 255, 0.95);
+							background: var(--card-bg);
 							border-radius: 16px;
-							padding: 24px;
 							margin-bottom: 20px;
 							backdrop-filter: blur(10px);
-							box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-							transition: transform 0.2s ease, box-shadow 0.2s ease;
+							box-shadow: var(--card-shadow);
+							transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.3s ease;
+							overflow: hidden;
 						}
 						
 						.card:hover {
-							transform: translateY(-2px);
-							box-shadow: 0 15px 40px rgba(0, 0, 0, 0.12);
+							box-shadow: var(--card-hover-shadow);
 						}
 						
 						.card-title {
 							font-size: 18px;
 							font-weight: 600;
-							color: #1a1a2e;
-							margin-bottom: 20px;
+							color: var(--text-primary);
+							padding: 20px 24px;
 							display: flex;
 							align-items: center;
-							gap: 10px;
+							justify-content: space-between;
+							cursor: pointer;
+							user-select: none;
+							transition: background 0.2s ease;
+						}
+						
+						.card-title:hover {
+							background: rgba(102, 126, 234, 0.05);
 						}
 						
 						.card-title::before {
@@ -643,6 +729,43 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							height: 20px;
 							background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 							border-radius: 2px;
+							flex-shrink: 0;
+						}
+						
+						.card-title-left {
+							display: flex;
+							align-items: center;
+							gap: 10px;
+						}
+						
+						.card-title-arrow {
+							width: 24px;
+							height: 24px;
+							display: flex;
+							align-items: center;
+							justify-content: center;
+							transition: transform 0.3s ease;
+							color: var(--text-secondary);
+							font-size: 12px;
+						}
+						
+						.card.collapsed .card-title-arrow {
+							transform: rotate(-90deg);
+						}
+						
+						.card-content {
+							padding: 0 24px 24px;
+							transition: max-height 0.3s ease, opacity 0.3s ease, padding 0.3s ease;
+							max-height: 2000px;
+							opacity: 1;
+							overflow: hidden;
+						}
+						
+						.card.collapsed .card-content {
+							max-height: 0;
+							opacity: 0;
+							padding-top: 0;
+							padding-bottom: 0;
 						}
 						
 						.sub-list {
@@ -652,7 +775,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						}
 						
 						.sub-item {
-							background: #f8f9fa;
+							background: var(--sub-item-bg);
 							border-radius: 12px;
 							padding: 16px;
 							transition: all 0.2s ease;
@@ -660,7 +783,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						}
 						
 						.sub-item:hover {
-							background: #fff;
+							background: var(--sub-item-hover-bg);
 							border-color: #667eea;
 							box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
 						}
@@ -676,7 +799,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						
 						.sub-link {
 							font-size: 13px;
-							color: #1a1a2e;
+							color: var(--text-primary);
 							word-break: break-all;
 							cursor: pointer;
 							display: flex;
@@ -755,7 +878,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							display: none;
 							margin-top: 20px;
 							padding-top: 20px;
-							border-top: 2px dashed #e0e0e0;
+							border-top: 2px dashed var(--border-color);
 						}
 						
 						.guest-section.active {
@@ -773,19 +896,27 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							gap: 10px;
 						}
 						
+						[data-theme="dark"] .guest-token {
+							background: linear-gradient(135deg, rgba(50, 50, 70, 0.8) 0%, rgba(40, 40, 60, 0.9) 100%);
+						}
+						
 						.guest-token .label {
 							font-size: 13px;
-							color: #666;
+							color: var(--text-secondary);
 						}
 						
 						.guest-token .token {
 							font-family: 'SF Mono', Monaco, monospace;
 							font-size: 14px;
 							font-weight: 600;
-							color: #1a1a2e;
-							background: white;
+							color: var(--text-primary);
+							background: rgba(255, 255, 255, 0.9);
 							padding: 4px 12px;
 							border-radius: 6px;
+						}
+						
+						[data-theme="dark"] .guest-token .token {
+							background: rgba(30, 30, 50, 0.9);
 						}
 						
 						.editor-section {
@@ -796,25 +927,25 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							width: 100%;
 							min-height: 280px;
 							padding: 16px;
-							border: 2px solid #e0e0e0;
+							border: 2px solid var(--input-border);
 							border-radius: 12px;
 							font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
 							font-size: 13px;
 							line-height: 1.6;
 							resize: vertical;
-							transition: border-color 0.2s ease, box-shadow 0.2s ease;
-							background: #fafafa;
+							transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.3s ease;
+							background: var(--editor-bg);
+							color: var(--text-primary);
 						}
 						
 						.editor:focus {
 							outline: none;
 							border-color: #667eea;
 							box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
-							background: white;
 						}
 						
 						.editor::placeholder {
-							color: #aaa;
+							color: var(--text-hint);
 						}
 						
 						.save-bar {
@@ -849,7 +980,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						
 						.save-status {
 							font-size: 13px;
-							color: #666;
+							color: var(--text-secondary);
 						}
 						
 						.save-status.success {
@@ -865,26 +996,30 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							align-items: center;
 							justify-content: space-between;
 							padding: 12px 16px;
-							background: #f8f9fa;
+							background: var(--sub-item-bg);
 							border-radius: 10px;
 							margin-bottom: 10px;
 						}
 						
 						.config-label {
 							font-size: 13px;
-							color: #666;
+							color: var(--text-secondary);
 							font-weight: 500;
 						}
 						
 						.config-value {
 							font-family: 'SF Mono', Monaco, monospace;
 							font-size: 12px;
-							color: #1a1a2e;
-							background: white;
+							color: var(--text-primary);
+							background: rgba(255, 255, 255, 0.9);
 							padding: 4px 10px;
 							border-radius: 6px;
 							max-width: 60%;
 							word-break: break-all;
+						}
+						
+						[data-theme="dark"] .config-value {
+							background: rgba(30, 30, 50, 0.9);
 						}
 						
 						.settings-form {
@@ -902,32 +1037,32 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						.form-label {
 							font-size: 13px;
 							font-weight: 600;
-							color: #1a1a2e;
+							color: var(--text-primary);
 						}
 						
 						.form-input {
 							padding: 12px 14px;
-							border: 2px solid #e0e0e0;
+							border: 2px solid var(--input-border);
 							border-radius: 10px;
 							font-size: 14px;
 							transition: all 0.2s ease;
-							background: #fafafa;
+							background: var(--input-bg);
+							color: var(--text-primary);
 						}
 						
 						.form-input:focus {
 							outline: none;
 							border-color: #667eea;
 							box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
-							background: white;
 						}
 						
 						.form-input::placeholder {
-							color: #aaa;
+							color: var(--text-hint);
 						}
 						
 						.form-hint {
 							font-size: 11px;
-							color: #888;
+							color: var(--text-hint);
 						}
 						
 						select.form-input {
@@ -939,11 +1074,67 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							padding-right: 36px;
 						}
 						
+						.editor-header {
+							display: flex;
+							align-items: center;
+							justify-content: space-between;
+							margin-bottom: 12px;
+						}
+						
+						.editor-hint {
+							font-size: 13px;
+							color: var(--text-secondary);
+						}
+						
+						.reset-btn {
+							background: transparent;
+							border: 1px solid var(--border-color);
+							color: var(--text-secondary);
+							padding: 6px 12px;
+							border-radius: 6px;
+							font-size: 12px;
+							cursor: pointer;
+							transition: all 0.2s ease;
+						}
+						
+						.reset-btn:hover {
+							background: rgba(102, 126, 234, 0.1);
+							border-color: #667eea;
+						}
+						
+						.editor-actions {
+							display: flex;
+							gap: 8px;
+						}
+						
+						.action-btn {
+							background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+							color: white;
+							border: none;
+							padding: 6px 12px;
+							border-radius: 6px;
+							font-size: 12px;
+							cursor: pointer;
+							transition: all 0.2s ease;
+						}
+						
+						.action-btn:hover {
+							transform: translateY(-1px);
+							box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+						}
+						
+						.yaml-editor {
+							font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+							font-size: 12px;
+							line-height: 1.5;
+							tab-size: 2;
+						}
+						
 						.footer {
 							text-align: center;
 							margin-top: 30px;
 							padding: 20px;
-							color: rgba(255, 255, 255, 0.8);
+							color: var(--footer-color);
 							font-size: 13px;
 						}
 						
@@ -960,6 +1151,66 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							font-size: 12px;
 							color: rgba(255, 255, 255, 0.9);
 							word-break: break-all;
+						}
+						
+						.theme-toggle {
+							display: flex;
+							align-items: center;
+							justify-content: center;
+							gap: 12px;
+							margin-top: 20px;
+							padding: 16px;
+							background: rgba(255, 255, 255, 0.15);
+							border-radius: 12px;
+							backdrop-filter: blur(10px);
+						}
+						
+						.theme-toggle-label {
+							font-size: 14px;
+							color: var(--footer-color);
+							font-weight: 500;
+						}
+						
+						.theme-switch {
+							position: relative;
+							width: 56px;
+							height: 28px;
+							cursor: pointer;
+						}
+						
+						.theme-switch input {
+							opacity: 0;
+							width: 0;
+							height: 0;
+						}
+						
+						.theme-slider {
+							position: absolute;
+							inset: 0;
+							background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+							border-radius: 28px;
+							transition: 0.3s;
+						}
+						
+						.theme-slider::before {
+							content: '';
+							position: absolute;
+							height: 22px;
+							width: 22px;
+							left: 3px;
+							bottom: 3px;
+							background: white;
+							border-radius: 50%;
+							transition: 0.3s;
+						}
+						
+						.theme-switch input:checked + .theme-slider::before {
+							transform: translateX(28px);
+						}
+						
+						.theme-icon {
+							font-size: 18px;
+							color: var(--footer-color);
 						}
 						
 						@media (max-width: 600px) {
@@ -995,8 +1246,12 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							<p>订阅汇聚管理面板</p>
 						</div>
 						
-						<div class="card">
-							<div class="card-title">订阅地址</div>
+						<div class="card collapsed" id="card-sub">
+							<div class="card-title" onclick="toggleCard('card-sub')">
+								<div class="card-title-left">订阅地址</div>
+								<div class="card-title-arrow">▼</div>
+							</div>
+							<div class="card-content">
 							<div class="sub-list">
 								<div class="sub-item">
 									<div class="sub-label">自适应订阅</div>
@@ -1108,69 +1363,800 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 									</div>
 								</div>
 							</div>
-						</div>
-						
-						<div class="card">
-							<div class="card-title">订阅转换配置</div>
-							<div class="config-item">
-								<span class="config-label">SUBAPI（订阅转换后端）</span>
-								<span class="config-value">${subProtocol}://${subConverter}</span>
-							</div>
-							<div class="config-item">
-								<span class="config-label">SUBCONFIG（配置文件）</span>
-								<span class="config-value">${subConfig}</span>
 							</div>
 						</div>
 						
-						<div class="card">
-							<div class="card-title">Telegram 通知设置</div>
-							${hasKV ? `
-							<div class="settings-form">
-								<div class="form-group">
-									<label class="form-label">Bot Token</label>
-									<input type="text" class="form-input" id="tgToken" placeholder="例如: 6894123456:XXXXXXXXXX..." value="${BotToken || ''}">
-									<span class="form-hint">从 @BotFather 获取</span>
+						<div class="card collapsed" id="card-config">
+							<div class="card-title" onclick="toggleCard('card-config')">
+								<div class="card-title-left">订阅转换配置</div>
+								<div class="card-title-arrow">▼</div>
+							</div>
+							<div class="card-content">
+								<div class="config-item">
+									<span class="config-label">SUBAPI（订阅转换后端）</span>
+									<span class="config-value">${subProtocol}://${subConverter}</span>
 								</div>
-								<div class="form-group">
-									<label class="form-label">Chat ID</label>
-									<input type="text" class="form-input" id="tgChatId" placeholder="例如: 6946912345" value="${ChatID || ''}">
-									<span class="form-hint">从 @userinfobot 获取</span>
+								<div class="config-item">
+									<span class="config-label">SUBCONFIG（配置文件）</span>
+									<span class="config-value">${subConfig}</span>
 								</div>
-								<div class="form-group">
-									<label class="form-label">推送模式</label>
-									<select class="form-input" id="tgMode">
-										<option value="0" ${TG == 0 ? 'selected' : ''}>仅推送异常访问</option>
-										<option value="1" ${TG == 1 ? 'selected' : ''}>推送所有访问</option>
-										<option value="2" ${TG == 2 ? 'selected' : ''}>关闭通知</option>
-									</select>
+							</div>
+						</div>
+						
+						<div class="card collapsed" id="card-tg">
+							<div class="card-title" onclick="toggleCard('card-tg')">
+								<div class="card-title-left">Telegram 通知设置</div>
+								<div class="card-title-arrow">▼</div>
+							</div>
+							<div class="card-content">
+								${hasKV ? `
+								<div class="settings-form">
+									<div class="form-group">
+										<label class="form-label">Bot Token</label>
+										<input type="text" class="form-input" id="tgToken" placeholder="例如: 6894123456:XXXXXXXXXX..." value="${BotToken || ''}">
+										<span class="form-hint">从 @BotFather 获取</span>
+									</div>
+									<div class="form-group">
+										<label class="form-label">Chat ID</label>
+										<input type="text" class="form-input" id="tgChatId" placeholder="例如: 6946912345" value="${ChatID || ''}">
+										<span class="form-hint">从 @userinfobot 获取</span>
+									</div>
+									<div class="form-group">
+										<label class="form-label">推送模式</label>
+										<select class="form-input" id="tgMode">
+											<option value="0" ${TG == 0 ? 'selected' : ''}>仅推送异常访问</option>
+											<option value="1" ${TG == 1 ? 'selected' : ''}>推送所有访问</option>
+											<option value="2" ${TG == 2 ? 'selected' : ''}>关闭通知</option>
+										</select>
+									</div>
+									<div class="save-bar">
+										<button class="save-btn" onclick="saveTGConfig()">保存设置</button>
+										<span class="save-status" id="tgSaveStatus"></span>
+									</div>
 								</div>
+								` : '<p style="color: #666; text-align: center; padding: 20px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
+							</div>
+						</div>
+						
+						<div class="card collapsed" id="card-clash">
+							<div class="card-title" onclick="toggleCard('card-clash')">
+								<div class="card-title-left">Clash 订阅配置</div>
+								<div class="card-title-arrow">▼</div>
+							</div>
+							<div class="card-content">
+								${hasKV ? `
+								<div class="editor-header">
+									<span class="editor-hint">自定义 Clash 订阅转换配置（YAML 格式）</span>
+									<div class="editor-actions">
+										<button class="action-btn" onclick="generateFromSubs()">从节点与订阅生成</button>
+										<button class="reset-btn" onclick="resetClashConfig()">恢复默认</button>
+									</div>
+								</div>
+								<textarea class="editor yaml-editor" 
+									placeholder="Clash 配置文件内容..."
+									id="clashConfig">${clashConfigContent}</textarea>
 								<div class="save-bar">
-									<button class="save-btn" onclick="saveTGConfig()">保存设置</button>
-									<span class="save-status" id="tgSaveStatus"></span>
+									<button class="save-btn" id="clashSaveBtn" onclick="saveClashConfig()">保存配置</button>
+									<span class="save-status" id="clashSaveStatus"></span>
 								</div>
+								` : '<p style="color: #666; text-align: center; padding: 20px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
 							</div>
-							` : '<p style="color: #666; text-align: center; padding: 20px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
 						</div>
 						
-						<div class="card">
-							<div class="card-title">节点与订阅编辑</div>
-							${hasKV ? `
-							<textarea class="editor" 
-								placeholder="在此输入节点链接或订阅链接，每行一个&#10;&#10;示例：&#10;vless://xxxxx@host:443?...&#10;vmess://xxxxx&#10;https://sub.example.com/auto"
-								id="content">${content}</textarea>
-							<div class="save-bar">
-								<button class="save-btn" id="saveBtn" onclick="saveContent()">保存配置</button>
-								<span class="save-status" id="saveStatus"></span>
+						<div class="card collapsed" id="card-editor">
+							<div class="card-title" onclick="toggleCard('card-editor')">
+								<div class="card-title-left">节点与订阅编辑</div>
+								<div class="card-title-arrow">▼</div>
 							</div>
-							` : '<p style="color: #666; text-align: center; padding: 40px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
+							<div class="card-content">
+								${hasKV ? `
+								<textarea class="editor" 
+									placeholder="在此输入节点链接或订阅链接，每行一个&#10;&#10;示例：&#10;vless://xxxxx@host:443?...&#10;vmess://xxxxx&#10;https://sub.example.com/auto"
+									id="content">${content}</textarea>
+								<div class="save-bar">
+									<button class="save-btn" id="saveBtn" onclick="saveContent()">保存配置</button>
+									<span class="save-status" id="saveStatus"></span>
+								</div>
+								` : '<p style="color: #666; text-align: center; padding: 40px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
+							</div>
 						</div>
 						
 						<div class="footer">
 							<p>UA: <span style="font-family: monospace; opacity: 0.8;">${request.headers.get('User-Agent')}</span></p>
+							<div class="theme-toggle">
+								<span class="theme-icon">☀️</span>
+								<label class="theme-switch">
+									<input type="checkbox" id="themeToggle" onchange="toggleTheme()">
+									<span class="theme-slider"></span>
+								</label>
+								<span class="theme-icon">🌙</span>
+								<span class="theme-toggle-label" id="themeLabel">日间模式</span>
+							</div>
 						</div>
 					</div>
 					
 					<script>
+					function toggleTheme() {
+						const isDark = document.getElementById('themeToggle').checked;
+						document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+						localStorage.setItem('theme', isDark ? 'dark' : 'light');
+						document.getElementById('themeLabel').textContent = isDark ? '夜间模式' : '日间模式';
+					}
+					
+					function initTheme() {
+						const savedTheme = localStorage.getItem('theme') || 'light';
+						const isDark = savedTheme === 'dark';
+						document.documentElement.setAttribute('data-theme', savedTheme);
+						document.getElementById('themeToggle').checked = isDark;
+						document.getElementById('themeLabel').textContent = isDark ? '夜间模式' : '日间模式';
+					}
+					
+					function toggleCard(cardId) {
+						const card = document.getElementById(cardId);
+						if (card) {
+							card.classList.toggle('collapsed');
+						}
+					}
+					
+					function saveClashConfig() {
+						const textarea = document.getElementById('clashConfig');
+						const btn = document.getElementById('clashSaveBtn');
+						const status = document.getElementById('clashSaveStatus');
+						
+						if (!textarea) return;
+						
+						const content = textarea.value;
+						
+						btn.disabled = true;
+						btn.textContent = '保存中...';
+						status.textContent = '';
+						
+						fetch(window.location.href, {
+							method: 'POST',
+							body: JSON.stringify({ type: 'clash-config', content: content }),
+							headers: {
+								'Content-Type': 'application/json'
+							},
+							cache: 'no-cache'
+						})
+						.then(response => {
+							if (!response.ok) throw new Error('HTTP ' + response.status);
+							return response.json();
+						})
+						.then(data => {
+							const now = new Date().toLocaleString('zh-CN');
+							status.textContent = '✓ Clash配置已保存 ' + now;
+							status.className = 'save-status success';
+							textarea.defaultValue = content;
+						})
+						.catch(error => {
+							status.textContent = '✗ 保存失败: ' + error.message;
+							status.className = 'save-status error';
+						})
+						.finally(() => {
+							btn.disabled = false;
+							btn.textContent = '保存配置';
+						});
+					}
+					
+					function resetClashConfig() {
+						if (!confirm('确定要恢复默认配置吗？当前修改将丢失。')) return;
+						
+						const defaultConfig = \`# Clash 订阅转换配置
+# 文档: https://github.com/nicegram/Clash-for-Windows
+
+# 基础设置
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+
+# DNS 设置
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  fallback:
+    - 8.8.8.8
+    - 1.1.1.1
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+
+# 代理组
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - DIRECT
+      - REJECT
+
+# 规则
+rules:
+  - GEOIP,LAN,DIRECT,no-resolve
+  - GEOIP,CN,DIRECT,no-resolve
+  - MATCH,Proxy\`;
+						
+						const textarea = document.getElementById('clashConfig');
+						if (textarea) {
+							textarea.value = defaultConfig;
+						}
+					}
+					
+					function hashString(str) {
+						var hash = 0;
+						var sha1 = 0;
+						for (var i = 0; i < str.length; i++) {
+							var char = str.charCodeAt(i);
+							hash = ((hash << 5) - hash) + char;
+							hash = hash & hash;
+							sha1 = ((sha1 << 7) - sha1) + char;
+							sha1 = sha1 & sha1;
+						}
+						var md5Hex = Math.abs(hash).toString(16).padStart(8, '0');
+						var sha1Hex = Math.abs(sha1).toString(16).padStart(8, '0');
+						return md5Hex + sha1Hex;
+					}
+					
+					function stripProxiesProvidersUse(config) {
+						var lines = config.split('\\n');
+						var result = [];
+						var skip = false;
+						var skipIndent = -1;
+						var inProxyGroups = false;
+						
+						for (var i = 0; i < lines.length; i++) {
+							var t = lines[i].trim();
+							var leadingSpaces = lines[i].length - lines[i].trimStart().length;
+							
+							// 跟踪是否在 proxy-groups 内
+							if (t === 'proxy-groups:') { inProxyGroups = true; }
+							if (inProxyGroups && (t === 'rules:' || t === 'proxy-providers:')) { inProxyGroups = false; }
+							
+							// 跳过 proxies: 整个段
+							if (!inProxyGroups && t === 'proxies:') { skip = true; skipIndent = leadingSpaces; continue; }
+							// 跳过 proxy-providers: 整个段
+							if (t === 'proxy-providers:') { skip = true; skipIndent = leadingSpaces; continue; }
+							// proxy-groups 内的 proxies: 和 use: 都跳过
+							if (inProxyGroups && (t === 'proxies:' || t === 'use:')) { skip = true; skipIndent = leadingSpaces; continue; }
+							
+							// 遇到同级或更高级别的非空非注释行时停止跳过
+							if (skip && t.length > 0 && !lines[i].startsWith('#')) {
+								if (leadingSpaces <= skipIndent) {
+									skip = false;
+								} else {
+									continue;
+								}
+							} else if (skip && t === '') {
+								continue;
+							}
+							
+							if (skip) continue;
+							result.push(lines[i]);
+						}
+						return result.join('\\n');
+					}
+					
+					function generateFromSubs() {
+						const contentEditor = document.getElementById('content');
+						const clashEditor = document.getElementById('clashConfig');
+						
+						if (!contentEditor || !clashEditor) {
+							alert('找不到节点与订阅编辑器');
+							return;
+						}
+						
+						const subsContent = contentEditor.value.trim();
+						const existingConfig = clashEditor.value.trim();
+						
+						// 分析节点与订阅编辑器中的内容
+						const lines = subsContent.split('\\n').filter(line => line.trim());
+						const newNodes = [];
+						const newProviders = [];
+						
+						lines.forEach(line => {
+							line = line.trim();
+							if (!line) return;
+							
+							if (line.match(/^(vless|vmess|trojan|ss|ssr|socks|http|hysteria2?|tuic|wg|wireguard):\\/\\//i)) {
+								const name = extractNodeName(line);
+								newNodes.push({ name, type: getNodeType(line), node: line });
+							} else if (line.match(/^https?:\\/\\//i)) {
+								const providerName = extractProviderName(line);
+								newProviders.push({ name: providerName, url: line });
+							}
+						});
+						
+						// 如果配置为空，生成默认配置
+						if (!existingConfig) {
+							generateDefaultConfig(newNodes, newProviders);
+							return;
+						}
+						
+						// 清空原有的 proxies、proxy-providers、use
+						let config = stripProxiesProvidersUse(existingConfig);
+						
+						// 重新生成 proxies
+						if (newNodes.length > 0) {
+							let proxiesSection = '# 代理节点\\nproxies:\\n';
+							newNodes.forEach(n => {
+								proxiesSection += parseNodeToClash(n.node, n.name) + '\\n';
+							});
+							proxiesSection += '\\n';
+							config = proxiesSection + config;
+						}
+						
+						// 重新生成 proxy-providers
+						if (newProviders.length > 0) {
+							let providersSection = '# 订阅提供者\\nproxy-providers:\\n';
+							newProviders.forEach(p => {
+								p.providerName = 'sub_' + hashString(p.url);
+								providersSection += \`  \${p.providerName}:\\n\`;
+								providersSection += \`    url: "\${p.url}"\\n\`;
+								providersSection += '    type: http\\n';
+								providersSection += '    interval: 3600\\n';
+								providersSection += '    proxy: DIRECT\\n';
+								providersSection += '    health-check: {enable: true, url: "http://google.com/generate_204", interval: 300}\\n';
+								providersSection += '    override:\\n';
+								providersSection += \`      additional-prefix: "[\${p.providerName}]"\\n\`;
+							});
+							providersSection += '\\n';
+							config = providersSection + config;
+						}
+						
+						// 重建 proxy-groups 中的 use: 引用
+						var nodeNames = newNodes.map(n => n.name);
+						var providerNames = newProviders.map(p => 'sub_' + hashString(p.url));
+						if (nodeNames.length > 0 || providerNames.length > 0) {
+							config = updateProxyGroups(config, nodeNames, providerNames);
+						}
+						
+						clashEditor.value = config;
+						
+						var msg = 'Clash 配置已同步：\\n';
+						msg += '- 代理节点: ' + newNodes.length + ' 个\\n';
+						msg += '- 订阅提供者: ' + newProviders.length + ' 个';
+						alert(msg);
+					}
+					
+					function generateDefaultConfig(nodes, providers) {
+						let config = \`# Clash 订阅配置
+# 自动生成于 \${new Date().toLocaleString('zh-CN')}
+
+# 基础设置
+mixed-port: 7890
+allow-lan: false
+bind-address: '*'
+mode: rule
+log-level: info
+external-controller: 127.0.0.1:9090
+
+# DNS 设置
+dns:
+  enable: true
+  listen: 0.0.0.0:53
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  fallback:
+    - 8.8.8.8
+    - 1.1.1.1
+  fallback-filter:
+    geoip: true
+    geoip-code: CN
+
+					\`;
+						
+						// 添加订阅提供者
+						if (providers.length > 0) {
+							config += '# 订阅提供者\\nproxy-providers:\\n';
+							providers.forEach(p => {
+								p.providerName = 'sub_' + hashString(p.url);
+								config += \`  \${p.providerName}:\\n\`;
+								config += \`    url: "\${p.url}"\\n\`;
+								config += '    type: http\\n';
+								config += '    interval: 3600\\n';
+								config += '    proxy: DIRECT\\n';
+								config += '    health-check: {enable: true, url: "http://google.com/generate_204", interval: 300}\\n';
+								config += '    override:\\n';
+								config += \`      additional-prefix: "[\${p.providerName}]"\\n\`;
+							});
+							config += '\\n';
+						}
+						
+						// 添加代理节点
+						if (nodes.length > 0) {
+							config += '# 代理节点\\nproxies:\\n';
+							nodes.forEach(n => {
+								config += parseNodeToClash(n.node, n.name) + '\\n';
+							});
+							config += '\\n';
+						}
+						
+						// 生成代理组
+						config += '# 代理组\\nproxy-groups:\\n';
+						config += '  - name: Proxy\\n    type: select\\n    proxies:\\n      - 自动选择\\n      - 手动切换\\n      - DIRECT\\n';
+						
+						nodes.forEach(n => {
+							config += \`      - \${n.name}\\n\`;
+						});
+						
+						if (providers.length > 0) {
+							config += '    use:\\n';
+							providers.forEach(p => {
+								config += \`      - \${p.providerName}\\n\`;
+							});
+						}
+						
+						if (nodes.length > 3 || providers.length > 0) {
+							config += '\\n  - name: Auto\\n    type: url-test\\n    proxies:\\n      - 自动选择\\n      - 手动切换\\n      - DIRECT\\n';
+							nodes.forEach(n => {
+								config += \`      - \${n.name}\\n\`;
+							});
+							if (providers.length > 0) {
+								config += '    use:\\n';
+								providers.forEach(p => {
+									config += \`      - \${p.providerName}\\n\`;
+								});
+							}
+							config += '    url: http://www.gstatic.com/generate_204\\n    interval: 300\\n';
+						}
+						
+						config += '\\n# 规则\\nrules:\\n';
+						config += '  - GEOSITE,category-ads-all,REJECT\\n';
+						config += '  - GEOSITE,cn,DIRECT\\n';
+						config += '  - GEOIP,CN,DIRECT\\n';
+						config += '  - MATCH,Proxy\\n';
+						
+						document.getElementById('clashConfig').value = config;
+						alert('已生成默认 Clash 配置');
+					}
+					
+					function extractExistingProviders(config) {
+						var names = [];
+						var lines = config.split('\\n');
+						var inProviders = false;
+						for (var i = 0; i < lines.length; i++) {
+							var t = lines[i].trim();
+							if (t === 'proxy-providers:') { inProviders = true; continue; }
+							if (inProviders) {
+								if (t.indexOf('- name:') === 0 || (t.indexOf('- name:') === -1 && t.indexOf(' ') !== 0 && t !== '' && t.indexOf('#') !== 0 && t.indexOf('proxy-groups:') === -1)) {
+									if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('proxies:') === 0) { inProviders = false; continue; }
+								}
+								if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0) { inProviders = false; continue; }
+								if (t.length > 1 && t.charAt(t.length - 1) === ':' && t.indexOf(' ') === -1 && t.indexOf('#') !== 0) {
+									names.push(t.slice(0, -1));
+								}
+							}
+						}
+						return names;
+					}
+					
+					function extractExistingProviderUrls(config) {
+						var urls = [];
+						var lines = config.split('\\n');
+						var inProviders = false;
+						for (var i = 0; i < lines.length; i++) {
+							var t = lines[i].trim();
+							if (t === 'proxy-providers:') { inProviders = true; continue; }
+							if (inProviders && (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0)) { inProviders = false; break; }
+							if (inProviders) {
+								var urlMatch = t.match(/^url:\s*["']([^"']+)["']/);
+								if (urlMatch) urls.push(urlMatch[1]);
+							}
+						}
+						return urls;
+					}
+					
+					function extractExistingProxies(config) {
+						var names = [];
+						var lines = config.split('\\n');
+						var inProxies = false;
+						for (var i = 0; i < lines.length; i++) {
+							var t = lines[i].trim();
+							if (t === 'proxies:') { inProxies = true; continue; }
+							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0)) { inProxies = false; break; }
+							if (inProxies) {
+								var nameMatch = t.match(/^- name:\s*["']?([^"']+)["']?/);
+								if (nameMatch) names.push(nameMatch[1]);
+							}
+						}
+						return names;
+					}
+					
+					function extractExistingProxiesKeys(config) {
+						var hashes = [];
+						var lines = config.split('\\n');
+						var inProxies = false;
+						var block = {};
+						
+						for (var i = 0; i < lines.length; i++) {
+							var t = lines[i].trim();
+							if (t === 'proxies:') { inProxies = true; continue; }
+							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0)) { inProxies = false; break; }
+							if (inProxies) {
+								if (t.indexOf('- name:') === 0) {
+									if (block.server) {
+										var key = (block.type || '') + '|' + block.server + '|' + (block.port || '') + '|' + (block.uuid || block.password || '');
+										hashes.push(hashString(key));
+									}
+									block = {};
+								} else if (t.indexOf('server:') === 0) block.server = t.replace('server:', '').trim();
+								else if (t.indexOf('port:') === 0) block.port = t.replace('port:', '').trim();
+								else if (t.indexOf('type:') === 0) block.type = t.replace('type:', '').trim();
+								else if (t.indexOf('uuid:') === 0) block.uuid = t.replace('uuid:', '').trim();
+								else if (t.indexOf('password:') === 0) block.password = t.replace('password:', '').trim();
+							}
+						}
+						if (block.server) {
+							var key = (block.type || '') + '|' + block.server + '|' + (block.port || '') + '|' + (block.uuid || block.password || '');
+							hashes.push(hashString(key));
+						}
+						return hashes;
+					}
+					
+					function findSectionEnd(config, sectionName) {
+						var lines = config.split('\\n');
+						var inSection = false;
+						var startIdx = 0;
+						for (var i = 0; i < lines.length; i++) {
+							if (lines[i].trim() === sectionName + ':') {
+								inSection = true;
+								startIdx = i + 1;
+								continue;
+							}
+							if (inSection) {
+								if (lines[i].trim() !== '' && !lines[i].startsWith('#')) {
+									var leadingSpaces = lines[i].length - lines[i].trimStart().length;
+									if (leadingSpaces < 4) {
+										var pos = 0;
+										for (var j = 0; j < i; j++) pos += lines[j].length + 1;
+										return pos;
+									}
+								}
+							}
+						}
+						return config.length;
+					}
+					
+					function updateProxyGroups(config, nodeNames, providerNames) {
+						var lines = config.split('\\n');
+						var output = [];
+						var inProxyGroups = false;
+						var groupStart = -1;
+						var groupEnd = -1;
+						var groupHasUse = false;
+						var groupHasProxies = false;
+						var groupUseEnd = -1;
+						var groupProxiesEnd = -1;
+						
+						function flushGroup() {
+							if (groupStart < 0) return;
+							
+							for (var g = groupStart; g <= groupEnd; g++) {
+								output.push(lines[g]);
+							}
+							
+							// 每个 group 都插入默认 proxies + 节点名
+							var defaultProxies = ['自动选择', '手动切换', 'DIRECT'];
+							var allProxies = defaultProxies.concat(nodeNames);
+							if (groupHasProxies) {
+								for (var k = 0; k < allProxies.length; k++) {
+									output.splice(groupProxiesEnd + 1, 0, '      - ' + allProxies[k]);
+									groupProxiesEnd++;
+								}
+							} else {
+								output.push('    proxies:');
+								for (var k = 0; k < allProxies.length; k++) {
+									output.push('      - ' + allProxies[k]);
+								}
+							}
+							
+							// 插入 use: 块
+							if (providerNames.length > 0) {
+								if (groupHasUse) {
+									for (var k = 0; k < providerNames.length; k++) {
+										output.splice(groupUseEnd + 1, 0, '      - ' + providerNames[k]);
+										groupUseEnd++;
+									}
+								} else {
+									output.push('    use:');
+									for (var k = 0; k < providerNames.length; k++) {
+										output.push('      - ' + providerNames[k]);
+									}
+								}
+							}
+							
+							groupStart = -1;
+							groupEnd = -1;
+							groupHasUse = false;
+							groupHasProxies = false;
+							groupUseEnd = -1;
+							groupProxiesEnd = -1;
+						}
+						
+						for (var i = 0; i < lines.length; i++) {
+							var trimmed = lines[i].trim();
+							
+							if (trimmed === 'proxy-groups:') {
+								output.push(lines[i]);
+								inProxyGroups = true;
+								continue;
+							}
+							
+							if (inProxyGroups && (trimmed === 'rules:' || trimmed === 'proxy-providers:')) {
+								flushGroup();
+								inProxyGroups = false;
+								output.push(lines[i]);
+								continue;
+							}
+							
+							if (inProxyGroups && trimmed.indexOf('- name:') === 0) {
+								flushGroup();
+								groupStart = i;
+								groupEnd = i;
+								groupHasUse = false;
+								groupHasProxies = false;
+								groupUseEnd = -1;
+								groupProxiesEnd = -1;
+								continue;
+							}
+							
+							if (inProxyGroups && groupStart >= 0) {
+								groupEnd = i;
+								if (trimmed === 'use:') {
+									groupHasUse = true;
+									groupUseEnd = i;
+								}
+								if (trimmed === 'proxies:') {
+									groupHasProxies = true;
+									groupProxiesEnd = i;
+								}
+								if (groupHasUse && lines[i].indexOf('      - ') === 0) {
+									groupUseEnd = i;
+								}
+								if (groupHasProxies && lines[i].indexOf('      - ') === 0) {
+									groupProxiesEnd = i;
+								}
+								continue;
+							}
+							
+							output.push(lines[i]);
+						}
+						
+						flushGroup();
+						return output.join('\\n');
+					}
+					
+					function extractNodeName(node) {
+						// 尝试从节点链接中提取名称
+						const nameMatch = node.match(/#(.+)$/);
+						if (nameMatch) {
+							return decodeURIComponent(nameMatch[1]);
+						}
+						
+						// 从 URL 中提取信息生成名称
+						try {
+							if (node.startsWith('vless://') || node.startsWith('vmess://') || node.startsWith('trojan://')) {
+								const url = new URL(node);
+								const host = url.hostname;
+								const port = url.port;
+								return \`\${node.split('://')[0].toUpperCase()}-\${host}:\${port}\`;
+							}
+						} catch (e) {}
+						
+						return \`Node-\${Math.random().toString(36).substr(2, 6)}\`;
+					}
+					
+					function getNodeType(node) {
+						if (node.startsWith('vless://')) return 'vless';
+						if (node.startsWith('vmess://')) return 'vmess';
+						if (node.startsWith('trojan://')) return 'trojan';
+						if (node.startsWith('ss://')) return 'ss';
+						if (node.startsWith('ssr://')) return 'ssr';
+						if (node.startsWith('hysteria2://') || node.startsWith('hy2://')) return 'hysteria2';
+						if (node.startsWith('hysteria://')) return 'hysteria';
+						if (node.startsWith('tuic://')) return 'tuic';
+						return 'unknown';
+					}
+					
+					function extractProviderName(url) {
+						try {
+							const hostname = new URL(url).hostname;
+							const parts = hostname.split('.');
+							return parts[parts.length - 2] || hostname;
+						} catch (e) {
+							return 'provider-' + Math.random().toString(36).substr(2, 6);
+						}
+					}
+					
+					function parseNodeToClash(node, name) {
+						const type = getNodeType(node);
+						let result = \`  - name: "\${name}"\\n\`;
+						result += \`    type: \${type}\\n\`;
+						
+						try {
+							if (type === 'vless' || type === 'trojan') {
+								const url = new URL(node);
+								result += \`    server: \${url.hostname}\\n\`;
+								result += \`    port: \${url.port || 443}\\n\`;
+								
+								const params = {};
+								url.searchParams.forEach((v, k) => { params[k] = v; });
+								
+								if (type === 'vless') {
+									result += \`    uuid: \${url.username}\\n\`;
+									result += \`    cipher: \${params.cipher || 'auto'}\\n\`;
+								} else {
+									result += \`    password: \${url.username}\\n\`;
+								}
+								
+								result += \`    tls: \${params.security === 'tls'}\\n\`;
+								if (params.sni) result += \`    servername: \${params.sni}\\n\`;
+								if (params.fp) result += \`    client-fingerprint: \${params.fp}\\n\`;
+								if (params.flow) result += \`    flow: \${params.flow}\\n\`;
+								
+								if (params.type === 'ws') {
+									result += '    network: ws\\n';
+									if (params.path) result += \`    ws-opts:\\n      path: "\${params.path}"\\n\`;
+									if (params.host) result += \`      headers:\\n        Host: "\${params.host}"\\n\`;
+								} else if (params.type === 'grpc') {
+									result += '    network: grpc\\n';
+									if (params.serviceName) result += \`    grpc-opts:\\n      grpc-service-name: "\${params.serviceName}"\\n\`;
+								}
+							} else if (type === 'vmess') {
+								const decoded = atob(node.replace('vmess://', ''));
+								const data = JSON.parse(decoded);
+								result += \`    server: \${data.add}\\n\`;
+								result += \`    port: \${data.port}\\n\`;
+								result += \`    uuid: \${data.id}\\n\`;
+								result += \`    alterId: \${data.aid || 0}\\n\`;
+								result += \`    cipher: auto\\n\`;
+								result += \`    tls: \${data.tls === 'tls'}\\n\`;
+								if (data.sni) result += \`    servername: \${data.sni}\\n\`;
+								
+								if (data.net === 'ws') {
+									result += '    network: ws\\n';
+									if (data.path) result += \`    ws-opts:\\n      path: "\${data.path}"\\n\`;
+									if (data.host) result += \`      headers:\\n        Host: "\${data.host}"\\n\`;
+								} else if (data.net === 'grpc') {
+									result += '    network: grpc\\n';
+									if (data.path) result += \`    grpc-opts:\\n      grpc-service-name: "\${data.path}"\\n\`;
+								}
+							} else if (type === 'ss') {
+								const decoded = atob(node.replace('ss://', '').split('@')[0] + '==');
+								const parts = decoded.split(':');
+								const url = new URL(node.replace('ss://', '@'));
+								result += \`    server: \${url.hostname}\\n\`;
+								result += \`    port: \${url.port}\\n\`;
+								result += \`    cipher: \${parts[0]}\\n\`;
+								result += \`    password: \${parts[1]}\\n\`;
+							} else if (type === 'hysteria2') {
+								const url = new URL(node.replace('hy2://', 'hysteria2://'));
+								result += \`    server: \${url.hostname}\\n\`;
+								result += \`    port: \${url.port}\\n\`;
+								result += \`    password: \${url.username}\\n\`;
+								const params = {};
+								url.searchParams.forEach((v, k) => { params[k] = v; });
+								if (params.sni) result += \`    sni: \${params.sni}\\n\`;
+								result += \`    tls:\\n      enabled: true\\n\`;
+								if (params.insecure === '1') result += \`      verify: false\\n\`;
+							}
+						} catch (e) {
+							result += \`    # 解析失败: \${e.message}\\n\`;
+						}
+						
+						return result;
+					}
+					
 					function copyWithQR(text, qrId) {
 						navigator.clipboard.writeText(text).then(() => {
 							const btn = event.target;
@@ -1324,6 +2310,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 					}
 					
 					document.addEventListener('DOMContentLoaded', () => {
+						initTheme();
 						const textarea = document.getElementById('content');
 						if (textarea) {
 							let saveTimer;
