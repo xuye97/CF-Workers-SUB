@@ -54,6 +54,22 @@ export default {
 		total = total * 1099511627776;
 		let expire = Math.floor(timestamp / 1000);
 		SUBUpdateTime = env.SUBUPTIME || SUBUpdateTime;
+		
+		// 从 KV 读取配置（优先级：KV > 环境变量 > 默认值）
+		let KVConfig = {};
+		if (env.KV) {
+			try {
+				const kvConfigStr = await env.KV.get('CONFIG.json');
+				if (kvConfigStr) {
+					KVConfig = JSON.parse(kvConfigStr);
+				}
+			} catch (e) {
+				console.log('读取CONFIG.json失败:', e);
+			}
+		}
+		BotToken = KVConfig.TGTOKEN || BotToken;
+		ChatID = KVConfig.TGID || ChatID;
+		TG = KVConfig.TG !== undefined ? KVConfig.TG : TG;
 
 		if (!([mytoken, fakeToken, 访客订阅].includes(token) || url.pathname == ("/" + mytoken) || url.pathname.includes("/" + mytoken + "?"))) {
 			if (TG == 1 && url.pathname !== "/" && url.pathname !== "/favicon.ico") await sendMessage(`#异常访问 ${FileName}`, request.headers.get('CF-Connecting-IP'), `UA: ${userAgent}</tg-spoiler>\n域名: ${url.hostname}\n<tg-spoiler>入口: ${url.pathname + url.search}</tg-spoiler>`);
@@ -503,9 +519,24 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 		if (request.method === "POST") {
 			if (!env.KV) return new Response("未绑定KV空间", { status: 400 });
 			try {
+				const contentType = request.headers.get('Content-Type') || '';
 				const content = await request.text();
-				await env.KV.put(txt, content);
-				return new Response("保存成功");
+				
+				// 判断是保存配置还是保存节点数据
+				if (contentType.includes('application/json')) {
+					// 保存配置到 CONFIG.json
+					const config = JSON.parse(content);
+					const existingConfig = await env.KV.get('CONFIG.json');
+					const mergedConfig = existingConfig ? { ...JSON.parse(existingConfig), ...config } : config;
+					await env.KV.put('CONFIG.json', JSON.stringify(mergedConfig, null, 2));
+					return new Response(JSON.stringify({ success: true, message: "配置保存成功" }), {
+						headers: { 'Content-Type': 'application/json' }
+					});
+				} else {
+					// 保存节点数据
+					await env.KV.put(txt, content);
+					return new Response("保存成功");
+				}
 			} catch (error) {
 				console.error('保存KV时发生错误:', error);
 				return new Response("保存失败: " + error.message, { status: 500 });
@@ -856,6 +887,58 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							word-break: break-all;
 						}
 						
+						.settings-form {
+							display: flex;
+							flex-direction: column;
+							gap: 16px;
+						}
+						
+						.form-group {
+							display: flex;
+							flex-direction: column;
+							gap: 6px;
+						}
+						
+						.form-label {
+							font-size: 13px;
+							font-weight: 600;
+							color: #1a1a2e;
+						}
+						
+						.form-input {
+							padding: 12px 14px;
+							border: 2px solid #e0e0e0;
+							border-radius: 10px;
+							font-size: 14px;
+							transition: all 0.2s ease;
+							background: #fafafa;
+						}
+						
+						.form-input:focus {
+							outline: none;
+							border-color: #667eea;
+							box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+							background: white;
+						}
+						
+						.form-input::placeholder {
+							color: #aaa;
+						}
+						
+						.form-hint {
+							font-size: 11px;
+							color: #888;
+						}
+						
+						select.form-input {
+							cursor: pointer;
+							appearance: none;
+							background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23666' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+							background-repeat: no-repeat;
+							background-position: right 12px center;
+							padding-right: 36px;
+						}
+						
 						.footer {
 							text-align: center;
 							margin-top: 30px;
@@ -1040,6 +1123,36 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						</div>
 						
 						<div class="card">
+							<div class="card-title">Telegram 通知设置</div>
+							${hasKV ? `
+							<div class="settings-form">
+								<div class="form-group">
+									<label class="form-label">Bot Token</label>
+									<input type="text" class="form-input" id="tgToken" placeholder="例如: 6894123456:XXXXXXXXXX..." value="${BotToken || ''}">
+									<span class="form-hint">从 @BotFather 获取</span>
+								</div>
+								<div class="form-group">
+									<label class="form-label">Chat ID</label>
+									<input type="text" class="form-input" id="tgChatId" placeholder="例如: 6946912345" value="${ChatID || ''}">
+									<span class="form-hint">从 @userinfobot 获取</span>
+								</div>
+								<div class="form-group">
+									<label class="form-label">推送模式</label>
+									<select class="form-input" id="tgMode">
+										<option value="0" ${TG == 0 ? 'selected' : ''}>仅推送异常访问</option>
+										<option value="1" ${TG == 1 ? 'selected' : ''}>推送所有访问</option>
+										<option value="2" ${TG == 2 ? 'selected' : ''}>关闭通知</option>
+									</select>
+								</div>
+								<div class="save-bar">
+									<button class="save-btn" onclick="saveTGConfig()">保存设置</button>
+									<span class="save-status" id="tgSaveStatus"></span>
+								</div>
+							</div>
+							` : '<p style="color: #666; text-align: center; padding: 20px;">请绑定变量名称为 <strong>KV</strong> 的 KV 命名空间</p>'}
+						</div>
+						
+						<div class="card">
 							<div class="card-title">节点与订阅编辑</div>
 							${hasKV ? `
 							<textarea class="editor" 
@@ -1113,6 +1226,52 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							section.classList.add('active');
 							btn.textContent = '收起访客订阅';
 						}
+					}
+					
+					function saveTGConfig() {
+						const tgToken = document.getElementById('tgToken');
+						const tgChatId = document.getElementById('tgChatId');
+						const tgMode = document.getElementById('tgMode');
+						const status = document.getElementById('tgSaveStatus');
+						const saveBtn = event.target;
+						
+						if (!tgToken || !tgChatId || !tgMode) return;
+						
+						const config = {
+							TGTOKEN: tgToken.value.trim(),
+							TGID: tgChatId.value.trim(),
+							TG: parseInt(tgMode.value)
+						};
+						
+						saveBtn.disabled = true;
+						saveBtn.textContent = '保存中...';
+						status.textContent = '';
+						
+						fetch(window.location.href, {
+							method: 'POST',
+							body: JSON.stringify(config),
+							headers: {
+								'Content-Type': 'application/json'
+							},
+							cache: 'no-cache'
+						})
+						.then(response => {
+							if (!response.ok) throw new Error('HTTP ' + response.status);
+							return response.json();
+						})
+						.then(data => {
+							const now = new Date().toLocaleString('zh-CN');
+							status.textContent = '✓ 设置已保存 ' + now;
+							status.className = 'save-status success';
+						})
+						.catch(error => {
+							status.textContent = '✗ 保存失败: ' + error.message;
+							status.className = 'save-status error';
+						})
+						.finally(() => {
+							saveBtn.disabled = false;
+							saveBtn.textContent = '保存设置';
+						});
 					}
 					
 					function saveContent() {
