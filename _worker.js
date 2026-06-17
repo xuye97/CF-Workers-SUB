@@ -1707,7 +1707,7 @@ rules:
 						
 						// 重新生成 proxy-providers
 						if (newProviders.length > 0) {
-							let providersSection = '# 订阅提供者\\nproxy-providers:\\n';
+							let providersSection = 'proxy-providers:\\n';
 							newProviders.forEach(p => {
 								p.providerName = p.customName ? p.customName : 'sub_' + hashString(p.url);
 								providersSection += \`  \${p.providerName}:\\n\`;
@@ -1770,7 +1770,7 @@ dns:
 						
 						// 添加订阅提供者
 						if (providers.length > 0) {
-							config += '# 订阅提供者\\nproxy-providers:\\n';
+							config += 'proxy-providers:\\n';
 							providers.forEach(p => {
 								p.providerName = p.customName ? p.customName : 'sub_' + hashString(p.url);
 								config += \`  \${p.providerName}:\\n\`;
@@ -1796,7 +1796,7 @@ dns:
 						
 						// 生成代理组
 						config += '# 代理组\\nproxy-groups:\\n';
-						config += '  - name: Proxy\\n    type: select\\n    proxies:\\n      - 自动选择\\n      - 手动切换\\n      - DIRECT\\n';
+						config += '  - name: Proxy\\n    type: select\\n    proxies:\\n      - DIRECT\\n      - 手动切换\\n      - 自动选择\\n';
 						
 						nodes.forEach(n => {
 							config += \`      - \${n.name}\\n\`;
@@ -1968,7 +1968,7 @@ dns:
 							} else {
 								var defaultProxies = [];
 								if (currentGroupName !== '自动选择' && currentGroupName !== '手动切换') {
-									defaultProxies = ['自动选择', '手动切换', 'DIRECT'].filter(function(p) { return p !== currentGroupName; });
+									defaultProxies = ['DIRECT', '手动切换', '自动选择'].filter(function(p) { return p !== currentGroupName; });
 								}
 								var filteredNodeNames = nodeNames.filter(function(n) { return n !== currentGroupName; });
 								allProxies = defaultProxies.concat(filteredNodeNames);
