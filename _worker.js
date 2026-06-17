@@ -17,10 +17,7 @@ https://cfxr.eu.org/getSub
 `;
 
 let urls = [];
-let subConverter = "SUBAPI.cmliussss.net"; //在线订阅转换后端，目前使用CM的订阅转换功能。支持自建psub 可自行搭建https://github.com/bulianglin/psub
 let subConfig = "https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/config/ACL4SSR_Online_MultiCountry.ini"; //订阅配置文件
-let subProtocol = 'https';
-
 export default {
 	async fetch(request, env) {
 		const userAgentHeader = request.headers.get('User-Agent');
@@ -31,15 +28,7 @@ export default {
 		BotToken = env.TGTOKEN || BotToken;
 		ChatID = env.TGID || ChatID;
 		TG = env.TG || TG;
-		subConverter = env.SUBAPI || subConverter;
-		if (subConverter.includes("http://")) {
-			subConverter = subConverter.split("//")[1];
-			subProtocol = 'http';
-		} else {
-			subConverter = subConverter.split("//")[1] || subConverter;
-		}
-		subConfig = env.SUBCONFIG || subConfig;
-		FileName = env.SUBNAME || FileName;
+								FileName = env.SUBNAME || FileName;
 
 		const currentDate = new Date();
 		currentDate.setHours(0, 0, 0, 0);
@@ -123,9 +112,7 @@ export default {
 				}
 			}
 
-			let subConverterUrl;
-			let 订阅转换URL = `${url.origin}/${await MD5MD5(fakeToken)}?token=${fakeToken}`;
-			//console.log(订阅转换URL);
+									//console.log(订阅转换URL);
 			let req_data = MainData;
 
 			let 追加UA = 'v2rayn';
@@ -141,23 +128,9 @@ export default {
 				const 请求订阅响应内容 = await getSUB(订阅链接数组, request, 追加UA, userAgentHeader);
 				console.log(请求订阅响应内容);
 				req_data += 请求订阅响应内容[0].join('\n');
-				订阅转换URL += "|" + 请求订阅响应内容[1];
-				if (订阅格式 == 'base64' && !isSubConverterRequest && 请求订阅响应内容[1].includes('://')) {
-					subConverterUrl = `${subProtocol}://${subConverter}/sub?target=mixed&url=${encodeURIComponent(请求订阅响应内容[1])}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
-					try {
-						const subConverterResponse = await fetch(subConverterUrl, { headers: { 'User-Agent': 'v2rayN/CF-Workers-SUB  (https://github.com/cmliu/CF-Workers-SUB)' } });
-						if (subConverterResponse.ok) {
-							const subConverterContent = await subConverterResponse.text();
-							req_data += '\n' + atob(subConverterContent);
-						}
-					} catch (error) {
-						console.log('订阅转换请回base64失败，检查订阅转换后端是否正常运行');
-					}
-				}
-			}
+							}
 
-			if (env.WARP) 订阅转换URL += "|" + (await ADD(env.WARP)).join("|");
-			//修复中文错误
+						//修复中文错误
 			const utf8Encoder = new TextEncoder();
 			const encodedData = utf8Encoder.encode(req_data);
 			//const text = String.fromCharCode.apply(null, encodedData);
@@ -204,9 +177,7 @@ export default {
 				//"Subscription-Userinfo": `upload=${UD}; download=${UD}; total=${total}; expire=${expire}`,
 			};
 
-			if (订阅格式 == 'base64' || token == fakeToken) {
-				return new Response(base64Data, { headers: responseHeaders });
-			} else if (订阅格式 == 'clash') {
+			if (订阅格式 == 'clash') {
 				// 优先返回自定义 Clash 配置
 				if (env.KV) {
 					try {
@@ -219,28 +190,10 @@ export default {
 						console.log('读取自定义Clash配置失败:', e);
 					}
 				}
-				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=clash&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
-			} else if (订阅格式 == 'singbox') {
-				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=singbox&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
-			} else if (订阅格式 == 'surge') {
-				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=surge&ver=4&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
-			} else if (订阅格式 == 'quanx') {
-				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=quanx&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&udp=true`;
-			} else if (订阅格式 == 'loon') {
-				subConverterUrl = `${subProtocol}://${subConverter}/sub?target=loon&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subConfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false`;
 			}
-			//console.log(订阅转换URL);
-			try {
-				const subConverterResponse = await fetch(subConverterUrl, { headers: { 'User-Agent': userAgentHeader } });//订阅转换
-				if (!subConverterResponse.ok) return new Response(base64Data, { headers: responseHeaders });
-				let subConverterContent = await subConverterResponse.text();
-				if (订阅格式 == 'clash') subConverterContent = await clashFix(subConverterContent);
-				// 只有非浏览器订阅才会返回SUBNAME
-				if (!userAgent.includes('mozilla')) responseHeaders["Content-Disposition"] = `attachment; filename*=utf-8''${encodeURIComponent(FileName)}`;
-				return new Response(subConverterContent, { headers: responseHeaders });
-			} catch (error) {
-				return new Response(base64Data, { headers: responseHeaders });
-			}
+			
+			// 如果是其他客户端（已砍掉远程转换）或者无自定义配置的 Clash，均降级返回 Base64 节点数据
+			return new Response(base64Data, { headers: responseHeaders });
 		}
 	}
 };
@@ -923,6 +876,37 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							margin-top: 20px;
 						}
 						
+						.editor-container {
+							position: relative;
+							width: 100%;
+						}
+						.editor-bg {
+							position: absolute;
+							top: 0; left: 0;
+							width: 100%; height: 100%;
+							padding: 16px;
+							border: 2px solid transparent;
+							border-radius: 12px;
+							font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+							font-size: 13px;
+							line-height: 1.6;
+							box-sizing: border-box;
+							white-space: pre-wrap;
+							word-wrap: break-word;
+							overflow-wrap: break-word;
+							overflow-y: auto;
+							background: var(--editor-bg);
+							color: var(--text-primary);
+							z-index: 1;
+							pointer-events: none;
+						}
+						.editor-bg::-webkit-scrollbar {
+							width: 8px;
+							background: transparent;
+						}
+						.editor-bg::-webkit-scrollbar-thumb {
+							background: transparent;
+						}
 						.editor {
 							width: 100%;
 							min-height: 280px;
@@ -936,6 +920,21 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.3s ease;
 							background: var(--editor-bg);
 							color: var(--text-primary);
+						}
+						#content {
+							position: relative;
+							z-index: 2;
+							background: transparent !important;
+							color: transparent !important;
+							caret-color: var(--text-primary);
+						}
+						#content::selection {
+							background: rgba(0, 120, 255, 0.2);
+							color: transparent;
+						}
+						#content::-moz-selection {
+							background: rgba(0, 120, 255, 0.2);
+							color: transparent;
 						}
 						
 						.editor:focus {
@@ -1366,23 +1365,7 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							</div>
 						</div>
 						
-						<div class="card collapsed" id="card-config">
-							<div class="card-title" onclick="toggleCard('card-config')">
-								<div class="card-title-left">订阅转换配置</div>
-								<div class="card-title-arrow">▼</div>
-							</div>
-							<div class="card-content">
-								<div class="config-item">
-									<span class="config-label">SUBAPI（订阅转换后端）</span>
-									<span class="config-value">${subProtocol}://${subConverter}</span>
-								</div>
-								<div class="config-item">
-									<span class="config-label">SUBCONFIG（配置文件）</span>
-									<span class="config-value">${subConfig}</span>
-								</div>
-							</div>
-						</div>
-						
+
 						<div class="card collapsed" id="card-tg">
 							<div class="card-title" onclick="toggleCard('card-tg')">
 								<div class="card-title-left">Telegram 通知设置</div>
@@ -1450,9 +1433,12 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 							</div>
 							<div class="card-content">
 								${hasKV ? `
-								<textarea class="editor" 
-									placeholder="在此输入节点链接或订阅链接，每行一个&#10;&#10;示例：&#10;vless://xxxxx@host:443?...&#10;vmess://xxxxx&#10;https://sub.example.com/auto"
-									id="content">${content}</textarea>
+								<div class="editor-container">
+									<div class="editor-bg" id="contentBg" aria-hidden="true"></div>
+									<textarea class="editor" 
+										placeholder="在此输入节点链接或订阅链接，每行一个&#10;&#10;示例：&#10;vless://xxxxx@host:443?...&#10;vmess://xxxxx&#10;https://sub.example.com/auto"
+										id="content" oninput="updateEditorBg()" onscroll="syncEditorScroll()">${content}</textarea>
+								</div>
 								<div class="save-bar">
 									<button class="save-btn" id="saveBtn" onclick="saveContent()">保存配置</button>
 									<span class="save-status" id="saveStatus"></span>
@@ -1490,6 +1476,27 @@ async function KV(request, env, txt = 'ADD.txt', guest) {
 						document.getElementById('themeToggle').checked = isDark;
 						document.getElementById('themeLabel').textContent = isDark ? '夜间模式' : '日间模式';
 					}
+					
+					function updateEditorBg() {
+						const el = document.getElementById('content');
+						const bg = document.getElementById('contentBg');
+						if (!el || !bg) return;
+						let text = el.value;
+						if (!text) {
+							bg.innerHTML = '<span style="color: var(--text-secondary); opacity: 0.6">' + el.getAttribute('placeholder').replace(/&#10;/g, '<br>') + '</span>';
+							return;
+						}
+						text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+						text = text.replace(/(#.*?)$/gm, '<span style="color: #888; opacity: 0.8;">$1</span>');
+						if (text.endsWith('\\n')) text += '<br>';
+						bg.innerHTML = text;
+					}
+					function syncEditorScroll() {
+						const el = document.getElementById('content');
+						const bg = document.getElementById('contentBg');
+						if (el && bg) bg.scrollTop = el.scrollTop;
+					}
+					setTimeout(updateEditorBg, 100);
 					
 					function toggleCard(cardId) {
 						const card = document.getElementById(cardId);
@@ -1617,7 +1624,7 @@ rules:
 							
 							// 跟踪是否在 proxy-groups 内
 							if (t === 'proxy-groups:') { inProxyGroups = true; }
-							if (inProxyGroups && (t === 'rules:' || t === 'proxy-providers:')) { inProxyGroups = false; }
+							if (inProxyGroups && (t === 'rules:' || t === 'proxy-providers:' || t === 'rule-providers:')) { inProxyGroups = false; }
 							
 							// 跳过 proxies: 整个段
 							if (!inProxyGroups && t === 'proxies:') { skip = true; skipIndent = leadingSpaces; continue; }
@@ -1668,8 +1675,14 @@ rules:
 								const name = extractNodeName(line);
 								newNodes.push({ name, type: getNodeType(line), node: line });
 							} else if (line.match(/^https?:\\/\\//i)) {
-								const providerName = extractProviderName(line);
-								newProviders.push({ name: providerName, url: line });
+								let actualUrl = line;
+								let customName = null;
+								const hashIndex = line.indexOf('#');
+								if (hashIndex !== -1) {
+									customName = line.substring(hashIndex + 1).trim();
+									actualUrl = line.substring(0, hashIndex).trim();
+								}
+								newProviders.push({ customName: customName, url: actualUrl });
 							}
 						});
 						
@@ -1696,7 +1709,7 @@ rules:
 						if (newProviders.length > 0) {
 							let providersSection = '# 订阅提供者\\nproxy-providers:\\n';
 							newProviders.forEach(p => {
-								p.providerName = 'sub_' + hashString(p.url);
+								p.providerName = p.customName ? p.customName : 'sub_' + hashString(p.url);
 								providersSection += \`  \${p.providerName}:\\n\`;
 								providersSection += \`    url: "\${p.url}"\\n\`;
 								providersSection += '    type: http\\n';
@@ -1712,7 +1725,7 @@ rules:
 						
 						// 重建 proxy-groups 中的 use: 引用
 						var nodeNames = newNodes.map(n => n.name);
-						var providerNames = newProviders.map(p => 'sub_' + hashString(p.url));
+						var providerNames = newProviders.map(p => p.customName ? p.customName : 'sub_' + hashString(p.url));
 						if (nodeNames.length > 0 || providerNames.length > 0) {
 							config = updateProxyGroups(config, nodeNames, providerNames);
 						}
@@ -1759,7 +1772,7 @@ dns:
 						if (providers.length > 0) {
 							config += '# 订阅提供者\\nproxy-providers:\\n';
 							providers.forEach(p => {
-								p.providerName = 'sub_' + hashString(p.url);
+								p.providerName = p.customName ? p.customName : 'sub_' + hashString(p.url);
 								config += \`  \${p.providerName}:\\n\`;
 								config += \`    url: "\${p.url}"\\n\`;
 								config += '    type: http\\n';
@@ -1797,7 +1810,7 @@ dns:
 						}
 						
 						if (nodes.length > 3 || providers.length > 0) {
-							config += '\\n  - name: Auto\\n    type: url-test\\n    proxies:\\n      - 自动选择\\n      - 手动切换\\n      - DIRECT\\n';
+							config += '\\n  - name: Auto\\n    type: url-test\\n    proxies:\\n';
 							nodes.forEach(n => {
 								config += \`      - \${n.name}\\n\`;
 							});
@@ -1829,9 +1842,9 @@ dns:
 							if (t === 'proxy-providers:') { inProviders = true; continue; }
 							if (inProviders) {
 								if (t.indexOf('- name:') === 0 || (t.indexOf('- name:') === -1 && t.indexOf(' ') !== 0 && t !== '' && t.indexOf('#') !== 0 && t.indexOf('proxy-groups:') === -1)) {
-									if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('proxies:') === 0) { inProviders = false; continue; }
+									if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('proxies:') === 0 || t.indexOf('rule-providers:') === 0) { inProviders = false; continue; }
 								}
-								if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0) { inProviders = false; continue; }
+								if (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('rule-providers:') === 0) { inProviders = false; continue; }
 								if (t.length > 1 && t.charAt(t.length - 1) === ':' && t.indexOf(' ') === -1 && t.indexOf('#') !== 0) {
 									names.push(t.slice(0, -1));
 								}
@@ -1847,7 +1860,7 @@ dns:
 						for (var i = 0; i < lines.length; i++) {
 							var t = lines[i].trim();
 							if (t === 'proxy-providers:') { inProviders = true; continue; }
-							if (inProviders && (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0)) { inProviders = false; break; }
+							if (inProviders && (t.indexOf('proxy-groups:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('rule-providers:') === 0)) { inProviders = false; break; }
 							if (inProviders) {
 								var urlMatch = t.match(/^url:\s*["']([^"']+)["']/);
 								if (urlMatch) urls.push(urlMatch[1]);
@@ -1863,7 +1876,7 @@ dns:
 						for (var i = 0; i < lines.length; i++) {
 							var t = lines[i].trim();
 							if (t === 'proxies:') { inProxies = true; continue; }
-							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0)) { inProxies = false; break; }
+							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('rule-providers:') === 0)) { inProxies = false; break; }
 							if (inProxies) {
 								var nameMatch = t.match(/^- name:\s*["']?([^"']+)["']?/);
 								if (nameMatch) names.push(nameMatch[1]);
@@ -1881,7 +1894,7 @@ dns:
 						for (var i = 0; i < lines.length; i++) {
 							var t = lines[i].trim();
 							if (t === 'proxies:') { inProxies = true; continue; }
-							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0)) { inProxies = false; break; }
+							if (inProxies && (t.indexOf('proxy-groups:') === 0 || t.indexOf('proxy-providers:') === 0 || t.indexOf('rules:') === 0 || t.indexOf('rule-providers:') === 0)) { inProxies = false; break; }
 							if (inProxies) {
 								if (t.indexOf('- name:') === 0) {
 									if (block.server) {
@@ -1937,6 +1950,7 @@ dns:
 						var groupHasProxies = false;
 						var groupUseEnd = -1;
 						var groupProxiesEnd = -1;
+						var currentGroupName = '';
 						
 						function flushGroup() {
 							if (groupStart < 0) return;
@@ -1945,9 +1959,21 @@ dns:
 								output.push(lines[g]);
 							}
 							
-							// 每个 group 都插入默认 proxies + 节点名
-							var defaultProxies = ['自动选择', '手动切换', 'DIRECT'];
-							var allProxies = defaultProxies.concat(nodeNames);
+							var isAdGroup = currentGroupName.includes('广告') || currentGroupName.toLowerCase().includes('advertise');
+
+							// 每个 group 都插入默认 proxies + 节点名（排除自身名称，避免自引用）
+							var allProxies = [];
+							if (isAdGroup) {
+								allProxies = ['REJECT', 'DIRECT'];
+							} else {
+								var defaultProxies = [];
+								if (currentGroupName !== '自动选择' && currentGroupName !== '手动切换') {
+									defaultProxies = ['自动选择', '手动切换', 'DIRECT'].filter(function(p) { return p !== currentGroupName; });
+								}
+								var filteredNodeNames = nodeNames.filter(function(n) { return n !== currentGroupName; });
+								allProxies = defaultProxies.concat(filteredNodeNames);
+							}
+
 							if (groupHasProxies) {
 								for (var k = 0; k < allProxies.length; k++) {
 									output.splice(groupProxiesEnd + 1, 0, '      - ' + allProxies[k]);
@@ -1961,7 +1987,7 @@ dns:
 							}
 							
 							// 插入 use: 块
-							if (providerNames.length > 0) {
+							if (providerNames.length > 0 && !isAdGroup) {
 								if (groupHasUse) {
 									for (var k = 0; k < providerNames.length; k++) {
 										output.splice(groupUseEnd + 1, 0, '      - ' + providerNames[k]);
@@ -1981,6 +2007,7 @@ dns:
 							groupHasProxies = false;
 							groupUseEnd = -1;
 							groupProxiesEnd = -1;
+							currentGroupName = '';
 						}
 						
 						for (var i = 0; i < lines.length; i++) {
@@ -1992,7 +2019,7 @@ dns:
 								continue;
 							}
 							
-							if (inProxyGroups && (trimmed === 'rules:' || trimmed === 'proxy-providers:')) {
+							if (inProxyGroups && (trimmed === 'rules:' || trimmed === 'proxy-providers:' || trimmed === 'rule-providers:')) {
 								flushGroup();
 								inProxyGroups = false;
 								output.push(lines[i]);
@@ -2007,6 +2034,12 @@ dns:
 								groupHasProxies = false;
 								groupUseEnd = -1;
 								groupProxiesEnd = -1;
+								// 提取当前组名称，用于排除自引用
+								currentGroupName = trimmed.replace('- name:', '').trim();
+								// 去除可能的引号包裹
+								if ((currentGroupName.startsWith('"') && currentGroupName.endsWith('"')) || (currentGroupName.startsWith("'") && currentGroupName.endsWith("'"))) {
+									currentGroupName = currentGroupName.slice(1, -1);
+								}
 								continue;
 							}
 							
